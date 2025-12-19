@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cine Privado Sincronizado</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    <div id="login">
+        <h1>🎬 Cine Privado</h1>
+        <div class="card">
+            <input type="text" id="roomInput" placeholder="Nombre de la sala (ej: pelis-pareja)">
+            <p>Si tú tienes el video:</p>
+            <input type="file" id="fileInput" accept="video/*">
+            <button onclick="iniciarComoHost()">Crear Sala y Transmitir</button>
+            <hr>
+            <p>Si vas a ver el video de tu amigo:</p>
+            <button onclick="iniciarComoInvitado()">Unirme a la Sala</button>
+        </div>
+    </div>
+
+    <div id="player" style="display: none;">
+        <div class="video-container">
+            <video id="myVideo" controls></video>
+            <div id="comentarios-area"></div>
+        </div>
+        <div class="chat-bar">
+            <input type="text" id="chatInput" placeholder="Escribe un comentario flotante...">
+            <button onclick="enviarComentario()">Enviar</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
