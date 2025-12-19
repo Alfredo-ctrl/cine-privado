@@ -9,12 +9,12 @@ const loginDiv = document.getElementById('login');
 let currentRoom = "";
 let isRemoteAction = false;
 
-// 1. Al cargar la web, generamos un ID aleatorio inicial
+// Al cargar, PeerJS nos asigna un ID temporal
 peer.on('open', (id) => {
-    console.log('ID de conexión inicial asignado por PeerJS:', id);
+    console.log('Conexión inicial establecida. ID temporal:', id);
 });
 
-// --- FUNCIÓN PARA EL ANFITRIÓN (EL QUE TIENE EL VIDEO) ---
+// --- FUNCIÓN PARA EL ANFITRIÓN (HOST) ---
 function iniciarComoHost() {
     currentRoom = roomInput.value.trim();
     const file = fileInput.files[0];
@@ -23,78 +23,75 @@ function iniciarComoHost() {
         return alert("Por favor, escribe un nombre de sala y selecciona un video.");
     }
 
-    // El truco clave: Reiniciamos PeerJS usando el nombre de la sala como ID
-    // Así el invitado sabrá exactamente a quién llamar.
+    // Reiniciamos PeerJS para usar el nombre de la sala como nuestra dirección
     peer.destroy(); 
     peer = new Peer(currentRoom); 
 
     peer.on('open', (id) => {
-        console.log("Sala abierta. Tu ID es:", id);
+        console.log("Sala creada. Tu dirección es:", id);
         video.src = URL.createObjectURL(file);
         socket.emit('join-room', currentRoom);
         mostrarReproductor();
     });
 
-    // Escuchar cuando el invitado nos llame para pedir el video
     peer.on('call', (call) => {
-        console.log("Recibiendo petición de video de un invitado...");
-        
-        // Capturar el stream (imagen y audio)
-        // Algunos navegadores requieren que el video ya se esté reproduciendo
+        console.log("Un invitado está solicitando el video...");
+        // Capturamos el video. Importante: debe estar en Play para que funcione mejor
         const stream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
-        
-        call.answer(stream); // Enviamos nuestro video al invitado
-        console.log("Enviando stream al invitado.");
+        call.answer(stream);
     });
 
     peer.on('error', (err) => {
         if (err.type === 'unavailable-id') {
-            alert("Ese nombre de sala ya está en uso. Elige otro.");
+            alert("Ese nombre de sala ya existe. Prueba con otro.");
             location.reload();
-        } else {
-            console.error("Error en Peer (Host):", err);
         }
     });
 }
 
-// --- FUNCIÓN PARA EL INVITADO (EL QUE VE EL VIDEO) ---
-function iniciarComoInvitado() {
+// --- FUNCIÓN PARA EL INVITADO (GUEST) ---
+async function iniciarComoInvitado() {
     currentRoom = roomInput.value.trim();
-    if (!currentRoom) return alert("Escribe el nombre de la sala para unirte.");
+    if (!currentRoom) return alert("Escribe el nombre de la sala.");
 
-    console.log("Intentando unirse a la sala:", currentRoom);
+    console.log("Intentando entrar a la sala:", currentRoom);
     socket.emit('join-room', currentRoom);
+    mostrarReproductor();
 
-    // Intentamos llamar al Host (cuyo ID es el nombre de la sala)
-    // Ponemos un pequeño delay de 500ms para asegurar que el socket conectó
-    setTimeout(() => {
+    // Lógica de reintento automático
+    const intentarConexion = () => {
+        console.log("Buscando al Host...");
         const call = peer.call(currentRoom, null);
 
         if (!call) {
-            console.error("No se pudo iniciar la llamada.");
-            return alert("Error de conexión. Revisa que el Host ya haya creado la sala.");
+            console.log("El Host no responde aún. Reintentando en 2 segundos...");
+            setTimeout(intentarConexion, 2000);
+            return;
         }
 
         call.on('stream', (remoteStream) => {
             console.log("¡Señal de video recibida!");
             video.srcObject = remoteStream;
-            
-            // Forzamos el play (muchos navegadores bloquean el sonido si no hay clic previo)
             video.play().catch(() => {
-                console.log("Reproducción automática bloqueada. Haz clic en el video para verlo.");
+                console.log("Reproducción bloqueada por el navegador. Toca la pantalla.");
             });
         });
 
         call.on('error', (err) => {
-            console.error("Error durante la llamada:", err);
-            alert("Hubo un error al recibir el video.");
+            console.log("Error en la llamada, reintentando...");
+            setTimeout(intentarConexion, 2000);
         });
-    }, 500);
+    };
 
-    mostrarReproductor();
+    // Aseguramos que nuestra conexión esté lista antes de llamar
+    if (peer.open) {
+        intentarConexion();
+    } else {
+        peer.on('open', intentarConexion);
+    }
 }
 
-// --- LÓGICA DE SINCRONIZACIÓN (SOCKETS) ---
+// --- SINCRONIZACIÓN DE VIDEO ---
 video.onplay = () => sync('play');
 video.onpause = () => sync('pause');
 video.onseeking = () => sync('seek');
@@ -109,10 +106,9 @@ function sync(action) {
 }
 
 socket.on('video-sync', (data) => {
-    console.log("Sincronización recibida:", data.action, "en tiempo:", data.time);
     isRemoteAction = true;
     
-    // Si la diferencia de tiempo es mucha, ajustamos
+    // Si la diferencia es mayor a medio segundo, corregimos posición
     if (Math.abs(video.currentTime - data.time) > 0.5) {
         video.currentTime = data.time;
     }
@@ -120,11 +116,10 @@ socket.on('video-sync', (data) => {
     if (data.action === 'play') video.play();
     if (data.action === 'pause') video.pause();
     
-    // Pequeño margen para evitar rebotes de eventos
     setTimeout(() => { isRemoteAction = false; }, 600);
 });
 
-// --- CHAT FLOTANTE ---
+// --- COMENTARIOS FLOTANTES ---
 function enviarComentario() {
     const input = document.getElementById('chatInput');
     if (!input.value) return;
